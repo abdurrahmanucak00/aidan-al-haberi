@@ -1,0 +1,44 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+out
+release
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Android / Capacitor build artifacts
+android/.gradle
+android/build
+android/app/build
+android/local.properties
+android/.idea
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Packaging artifacts
+*.exe
+*.dmg
+*.AppImage
+*.snap
+*.deb
+!build/*.exe
+
+# Editors & OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Tooling caches & logs
+.eslintcache
+.vite
+coverage
+*.log*
