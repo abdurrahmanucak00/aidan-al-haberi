@@ -42,3 +42,6 @@ Thumbs.db
 .vite
 coverage
 *.log*
+
+# Capacitor copies the web build here on `cap sync`; never commit it
+android/app/src/main/assets/public
