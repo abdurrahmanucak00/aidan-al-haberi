@@ -4,9 +4,25 @@ import { SearchSession } from '../types'
 let cachedClient: SupabaseClient | null = null
 let lastConfig = ''
 
+/** Rejects empty values and the placeholder strings shipped in `.env.example`. */
+export function sanitizeSupabaseConfig(url?: string, anonKey?: string): { url: string; anonKey: string } {
+  const cleanUrl = (url || '').trim()
+  const cleanKey = (anonKey || '').trim()
+  const isPlaceholder =
+    !cleanUrl ||
+    !cleanKey ||
+    /your-project|xxxx|example\.com/i.test(cleanUrl) ||
+    /your-anon|xxxx|placeholder/i.test(cleanKey)
+  if (isPlaceholder) return { url: '', anonKey: '' }
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(cleanUrl)) return { url: '', anonKey: '' }
+  return { url: cleanUrl, anonKey: cleanKey }
+}
+
 export function getSupabaseClient(url?: string, anonKey?: string): SupabaseClient | null {
-  const finalUrl = url || import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL
-  const finalKey = anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const { url: finalUrl, anonKey: finalKey } = sanitizeSupabaseConfig(
+    url || import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  )
 
   if (!finalUrl || !finalKey) return null
 
@@ -25,14 +41,55 @@ export function getSupabaseClient(url?: string, anonKey?: string): SupabaseClien
   }
 }
 
+/**
+ * Ensures there is an authenticated Supabase user.
+ *
+ * Row-level security policies rely on `auth.uid()`, so cloud sync needs a real
+ * session. The app has no login screen by design (local-first), therefore we
+ * fall back to Supabase anonymous sign-in. Anonymous sign-ins must be enabled
+ * once in the Supabase dashboard: Authentication → Providers → Anonymous.
+ */
+export async function ensureSupabaseSession(
+  supabase: SupabaseClient
+): Promise<{ userId?: string; error?: string }> {
+  try {
+    const { data } = await supabase.auth.getUser()
+    if (data?.user) return { userId: data.user.id }
+  } catch {
+    // No session yet — try anonymous below.
+  }
+
+  try {
+    const { data, error } = await supabase.auth.signInAnonymously()
+    if (error) {
+      const disabled = /anonymous/i.test(error.message) && /disabled|not enabled/i.test(error.message)
+      return {
+        error: disabled
+          ? 'Supabase anonim girişi kapalı. Dashboard → Authentication → Providers → Anonymous seçeneğini açın.'
+          : `Bulut oturumu açılamadı: ${error.message}`
+      }
+    }
+    if (data?.user) return { userId: data.user.id }
+    return { error: 'Bulut oturumu oluşturulamadı; gazete yerel olarak korunuyor.' }
+  } catch (err) {
+    return {
+      error: err instanceof Error
+        ? `Bulut oturumu açılamadı: ${err.message}`
+        : 'Bulut oturumu açılamadı.'
+    }
+  }
+}
+
 export async function syncSessionToSupabase(session: SearchSession, supabase: SupabaseClient): Promise<void> {
   try {
-    const { data: auth, error: authError } = await supabase.auth.getUser()
-    if (authError || !auth.user) throw new Error('Bulut kaydı için oturum açılması gerekiyor; gazete yerel olarak korunuyor.')
+    const auth = await ensureSupabaseSession(supabase)
+    if (!auth.userId) {
+      throw new Error(auth.error || 'Bulut kaydı için oturum açılması gerekiyor; gazete yerel olarak korunuyor.')
+    }
     const { data: sessionData, error: sessionErr } = await supabase
       .from('search_sessions')
       .insert({
-        user_id: auth.user.id,
+        user_id: auth.userId,
         searched_at: session.searched_at,
         date_from: session.date_from,
         date_to: session.date_to,
@@ -77,6 +134,12 @@ export async function fetchSessionsFromSupabase(
   limit: number = 20
 ): Promise<SearchSession[]> {
   try {
+    const auth = await ensureSupabaseSession(supabase)
+    if (!auth.userId) {
+      console.warn('Supabase fetch skipped:', auth.error)
+      return []
+    }
+
     const { data: sessionsData, error: sessErr } = await supabase
       .from('search_sessions')
       .select('*')

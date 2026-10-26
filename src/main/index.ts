@@ -1,21 +1,48 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import crypto from 'crypto'
+import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 const DEV_FALLBACK_SECRET = 'devradar_local_dev_only_secret!'
+const KEY_FILE_NAME = 'encryption.key'
+
+let cachedKey: Buffer | null = null
+
+/**
+ * Packaged builds never read `.env`, so a missing ENCRYPTION_KEY used to fall
+ * back to a publicly known secret. Instead we generate a random key once and
+ * persist it in the user-data directory.
+ */
+function loadOrCreatePersistentKey(): string {
+  const file = join(app.getPath('userData'), KEY_FILE_NAME)
+  try {
+    const existing = fs.readFileSync(file, 'utf8').trim()
+    if (existing.length >= 32) return existing
+  } catch {
+    // First run — key file does not exist yet.
+  }
+
+  const generated = crypto.randomBytes(32).toString('hex')
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true })
+    fs.writeFileSync(file, generated, { mode: 0o600 })
+  } catch (err) {
+    console.error('[DevRadar] encryption.key yazılamadı, oturumluk anahtar kullanılacak:', err)
+  }
+  return generated
+}
 
 function getEncryptionKey(customKey?: string): Buffer {
-  // Priority: explicit custom key > ENCRYPTION_KEY env var > dev-only fallback (warns)
-  let keyStr = customKey || process.env.ENCRYPTION_KEY
-  if (!keyStr) {
-    if (!is.dev) {
-      console.warn('[DevRadar] ENCRYPTION_KEY tanımlı değil. Üretimde mutlaka ayarlayın!')
-    }
-    keyStr = DEV_FALLBACK_SECRET
+  // Priority: explicit custom key > ENCRYPTION_KEY env var > persisted random key
+  if (customKey) {
+    return crypto.createHash('sha256').update(customKey).digest()
   }
-  return crypto.createHash('sha256').update(keyStr).digest()
+  if (cachedKey) return cachedKey
+  const keyStr = process.env.ENCRYPTION_KEY || loadOrCreatePersistentKey()
+  cachedKey = crypto.createHash('sha256').update(keyStr).digest()
+  return cachedKey
 }
 
 // AES-256-GCM (authenticated encryption) — single format shared with the renderer Web Crypto fallback.
@@ -31,10 +58,9 @@ function encryptText(text: string, customKey?: string): string {
   return `v1:${iv.toString('hex')}:${authTag}:${encrypted}`
 }
 
-function decryptText(cipherText: string, customKey?: string): string {
-  if (!cipherText || !cipherText.includes(':')) return cipherText
+/** Returns null when the payload cannot be decrypted with the given key. */
+function tryDecrypt(cipherText: string, key: Buffer): string | null {
   const parts = cipherText.split(':')
-  const key = getEncryptionKey(customKey)
 
   // Current format: v1:<iv>:<tag>:<data>
   if (parts[0] === 'v1' && parts.length === 4) {
@@ -45,9 +71,8 @@ function decryptText(cipherText: string, customKey?: string): string {
       let decrypted = decipher.update(dataHex, 'hex', 'utf8')
       decrypted += decipher.final('utf8')
       return decrypted
-    } catch (err) {
-      console.error('GCM decryption failed:', err)
-      return ''
+    } catch {
+      return null
     }
   }
 
@@ -59,12 +84,31 @@ function decryptText(cipherText: string, customKey?: string): string {
       let decrypted = decipher.update(encryptedHex, 'hex', 'utf8')
       decrypted += decipher.final('utf8')
       return decrypted
-    } catch (err) {
-      console.error('Legacy CBC decryption failed:', err)
-      return ''
+    } catch {
+      return null
     }
   }
 
+  return null
+}
+
+function decryptText(cipherText: string, customKey?: string): string {
+  if (!cipherText || !cipherText.includes(':')) return cipherText
+
+  const primary = tryDecrypt(cipherText, getEncryptionKey(customKey))
+  if (primary !== null) return primary
+
+  // Older builds encrypted with the fixed dev secret; keep those readable.
+  if (!customKey && !process.env.ENCRYPTION_KEY) {
+    const legacyKey = crypto.createHash('sha256').update(DEV_FALLBACK_SECRET).digest()
+    const legacy = tryDecrypt(cipherText, legacyKey)
+    if (legacy !== null) {
+      console.warn('[DevRadar] Anahtar eski gizli anahtarla çözüldü — ayarları yeniden kaydedin.')
+      return legacy
+    }
+  }
+
+  console.error('Decryption failed: payload cannot be decrypted with the current key.')
   return ''
 }
 

@@ -8,9 +8,12 @@ import {
   X,
   Save,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  Cloud,
+  Link2
 } from 'lucide-react'
 import { UserSettings } from '../types'
+import { getSupabaseClient, ensureSupabaseSession } from '../lib/supabase'
 
 interface RadarSettingsProps {
   settings: UserSettings
@@ -49,6 +52,42 @@ export const RadarSettings: React.FC<RadarSettingsProps> = ({
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [showKeys, setShowKeys] = useState(false)
+  const [isTestingCloud, setIsTestingCloud] = useState(false)
+
+  const handleTestCloud = async (): Promise<void> => {
+    const url = (formData.supabase_url || '').trim()
+    const anonKey = (formData.supabase_anon_key || '').trim()
+    if (!url || !anonKey) {
+      alert('Önce Supabase URL ve anon key alanlarını doldurun.')
+      return
+    }
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url)) {
+      alert('URL formatı hatalı ❌\nhttps://xxxx.supabase.co şeklinde olmalı.')
+      return
+    }
+    setIsTestingCloud(true)
+    try {
+      const client = getSupabaseClient(url, anonKey)
+      if (!client) {
+        alert('Supabase istemcisi oluşturulamadı. URL ve key değerlerini kontrol edin.')
+        return
+      }
+      const { userId, error } = await ensureSupabaseSession(client)
+      if (error || !userId) {
+        alert('Bulut bağlantısı BAŞARISIZ ❌\n\n' + (error || 'Bilinmeyen hata'))
+      } else {
+        alert(
+          'Bulut bağlantısı BAŞARILI ✅\n\n' +
+            'Anonim oturum: ' + userId.slice(0, 8) + '…\n' +
+            'Yeni gazeteler Supabase\'e de kaydedilecek.'
+        )
+      }
+    } catch (e: any) {
+      alert('Bağlantı hatası: ' + e.message)
+    } finally {
+      setIsTestingCloud(false)
+    }
+  }
 
   const handleTestKey = async (key: string, isBackup: boolean) => {
     if (!key) {
@@ -217,6 +256,61 @@ export const RadarSettings: React.FC<RadarSettingsProps> = ({
               </div>
             </div>
           </div>
+
+        {/* SECTION 1.5: CLOUD SYNC (SUPABASE) */}
+        <div className="rounded-3xl border border-sky-100 bg-white p-6 sm:p-8 space-y-4 shadow-xl shadow-sky-900/5">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-5 h-5 text-sky-600" />
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">Bulut Yedekleme (Supabase)</h3>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-md font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+              Opsiyonel
+            </span>
+          </div>
+
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Boş bırakırsan uygulama tamamen yerel çalışır. Doldurursan her gazete Supabase&apos;e de yedeklenir.
+            Supabase panelinde <span className="font-bold">Authentication → Providers → Anonymous</span> açık
+            ve <span className="font-bold">supabase-schema.sql</span> çalıştırılmış olmalı.
+          </p>
+
+          <div>
+            <label className="text-xs font-bold text-slate-700 mb-1 block">Supabase Project URL</label>
+            <input
+              type="text"
+              value={formData.supabase_url || ''}
+              onChange={(e) => setFormData({ ...formData, supabase_url: e.target.value.trim() })}
+              placeholder="https://xxxx.supabase.co"
+              className="w-full px-4 py-3 rounded-2xl bg-sky-50/50 border border-sky-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200 transition-all"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-bold text-slate-700">Supabase Anon Key (public)</label>
+              <button
+                type="button"
+                onClick={handleTestCloud}
+                disabled={isTestingCloud}
+                className="text-[11px] font-bold text-emerald-600 hover:underline disabled:opacity-50 flex items-center gap-1"
+              >
+                <Link2 className="w-3 h-3" />
+                <span>{isTestingCloud ? 'Test ediliyor...' : 'Bağlantıyı Test Et'}</span>
+              </button>
+            </div>
+            <input
+              type={showKeys ? 'text' : 'password'}
+              value={formData.supabase_anon_key || ''}
+              onChange={(e) => setFormData({ ...formData, supabase_anon_key: e.target.value.trim() })}
+              placeholder="eyJhbGciOiJIUzI1NiIs..."
+              className="w-full px-4 py-3 rounded-2xl bg-sky-50/50 border border-sky-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200 transition-all"
+            />
+            <p className="text-[10px] text-amber-600 mt-1">
+              Buraya sadece anon/public key yazın — service_role key asla.
+            </p>
+          </div>
+        </div>
 
         {/* SECTION 2: TRACKED PEOPLE */}
         <div className="rounded-3xl border border-sky-100 bg-white p-6 sm:p-8 space-y-4 shadow-xl shadow-sky-900/5">

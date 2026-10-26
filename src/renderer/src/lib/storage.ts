@@ -1,5 +1,6 @@
 import { SearchSession, UserSettings, SearchResult, FavoriteItem } from '../types'
 import { decryptApiKey, encryptApiKey } from './crypto'
+import { sanitizeSupabaseConfig } from './supabase'
 
 const STORAGE_KEYS = {
   SETTINGS: 'devradar_user_settings_v1',
@@ -10,8 +11,13 @@ const STORAGE_KEYS = {
 
 // Supabase credentials are injected at build time from .env (see .env.example).
 // Never hardcode real project keys in source control.
-const ENV_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
-const ENV_SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+// Placeholder values from .env.example are treated as "not configured".
+const ENV_SUPABASE = sanitizeSupabaseConfig(
+  import.meta.env.VITE_SUPABASE_URL || '',
+  import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+)
+const ENV_SUPABASE_URL = ENV_SUPABASE.url
+const ENV_SUPABASE_ANON_KEY = ENV_SUPABASE.anonKey
 
 export const DEFAULT_SETTINGS: UserSettings = {
   tracked_people: [

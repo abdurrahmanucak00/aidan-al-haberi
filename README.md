@@ -3,7 +3,7 @@
 **A desktop research agent that follows the people and topics you care about, analyses what it finds with Gemini, and publishes the result as a vintage newspaper in Turkish.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](package.json)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#getting-started)
 [![Electron](https://img.shields.io/badge/Electron-39-47848F.svg)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
@@ -109,19 +109,23 @@ npm run dev
 
 Open the **Ayarlar** (Settings) tab inside the app and paste your Tavily and Gemini keys. They are encrypted with AES-256-GCM before being written to local storage.
 
-Optional cloud sync reads Supabase credentials from `.env`:
+Optional cloud sync is configured **inside the app**: open **Ayarlar** → **Bulut Yedekleme
+(Supabase)** and paste the Project URL + anon/public key, then hit **Bağlantıyı Test Et**.
+No rebuild is required.
 
-```bash
-cp .env.example .env
-```
+Prerequisites, once per Supabase project:
 
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-ENCRYPTION_KEY=change-me-to-a-long-random-string
-```
+1. Run `supabase-schema.sql` in the SQL editor (tables + RLS policies).
+2. Enable **Authentication → Providers → Anonymous** — the app signs in anonymously
+   because it has no login screen.
+3. Copy the Project URL and the **anon/public** key from **Settings → API**.
 
-Apply `supabase-schema.sql` in the Supabase SQL editor first — it creates the tables and the row-level security policies. Cloud sync additionally requires an authenticated user; see [Privacy & security](#privacy--security).
+Step-by-step walkthrough: [`docs/SUPABASE-KURULUM.md`](docs/SUPABASE-KURULUM.md) (Turkish).
+
+For dev builds the same values can also be baked in via `.env` (`VITE_SUPABASE_URL`,
+`VITE_SUPABASE_ANON_KEY`); values entered in the Settings tab win. Leave them empty to run
+fully local. `ENCRYPTION_KEY` is optional too: when unset, a random key is generated on
+first launch and stored in `userData/encryption.key`.
 
 ### Build
 
@@ -180,9 +184,16 @@ This project takes a deliberately honest position on failure, because AI provide
 
 Known limitations:
 
-- The default encryption secret is shared and fixed; it is obfuscation-grade, not OS-keychain-grade. Set `ENCRYPTION_KEY` for anything beyond personal use.
-- Cloud sync needs an authenticated Supabase user. This version does not ship a full sign-in UI, so sync is effectively local-only until you add one.
-- The current Supabase schema does not yet store the structured summary fields, so a cloud-restored edition is less rich than the local one.
+- Without `ENCRYPTION_KEY`, the app generates a random key on first launch and keeps it in
+  `userData/encryption.key`. Keys encrypted by older builds (fixed dev secret) are still
+  readable through a fallback, but re-saving Settings upgrades them to the new key.
+- Cloud sync signs in anonymously, so the cloud copy is tied to this device's anonymous
+  identity. Reinstalling or wiping app data loses that identity — treat cloud sync as an
+  archive, not as cross-device sync.
+- Cloud **restore** is not wired into the UI yet: `fetchSessionsFromSupabase` and
+  `mergeSessionsLWW` exist but nothing calls them.
+- The current Supabase schema does not yet store the structured summary fields, so a
+  cloud-restored edition is less rich than the local one.
 
 ## Privacy & security
 
@@ -196,7 +207,7 @@ To report a vulnerability, please see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-- Sign-in flow for optional Supabase sync
+- Cloud restore: pull cloud editions back into the History view
 - Schema migration for structured summary fields
 - Arbitrary user-defined tags on favourites
 - Additional language targets
