@@ -53,6 +53,23 @@ yedekleme çalışmaz.
 4. **Ayarları Kaydet**.
 5. Bir araştırma çalıştır → panelde **Table Editor → search_sessions** içinde satır oluşmalı.
 
+## 6. Geri yükleme
+
+Gazetelerini başka bir kurulumda geri almak istersen:
+
+1. **Geçmiş** sekmesine git.
+2. Sağ üstteki **Buluttan Geri Yükle** butonuna bas.
+3. Butonun altında sonuç yazar: kaç gazete okundu, kaç yeni eklendi.
+
+- Buluttaki ve yereldeki aynı gazete **id** ile eşleşir; aynı gazete iki kez eklenmez.
+- Aynı gazete iki tarafta da varsa **yerel kopya** korunur (daha zengin veri).
+- En fazla son **30 gazete** çekilir (yerel geçmiş sınırıyla aynı).
+- Buton yalnızca Ayarlar'da Supabase bilgileri doluysa görünür.
+
+> Not: Daha önce eski şemayı çalıştırdıysan `supabase-schema.sql`'i **tekrar çalıştır** —
+> yeni sütunları (başlık, neden önemli, etki, önem puanı) `ADD COLUMN IF NOT EXISTS` ile
+> ekler, mevcut veriyi silmez.
+
 ---
 
 ## Sorun giderme
@@ -63,6 +80,8 @@ yedekleme çalışmaz.
 | "relation ... does not exist" | 2. adımı yap: `supabase-schema.sql` çalıştırılmamış. |
 | "new row violates row-level security policy" | Anonim giriş kapalı veya URL/key yanlış projeye ait. |
 | "Failed to fetch" / bağlantı hatası | URL yanlış (başında `https://`, sonunda `/` olmasın) veya proje duraklatılmış. |
+| "Bulutta kayıtlı gazete bulunamadı" | Bu cihazın anonim oturumunda henüz yedek yok; önce bir araştırma çalıştır. |
+| "column ... does not exist" | 2. adımı tekrar yap: şema güncellenmemiş (yeni sütunlar eksik). |
 | Ücretsiz plan duraklaması | 1 hafta işlem olmazsa proje duraklar; panelden **Restore** ile geri açılır. |
 
 ## Notlar

@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS search_results (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Şema yükseltmesi: daha önce kurulmuş projelerde eksik sütunları ekler.
+-- (Yeniden çalıştırmak güvenlidir; mevcut veriyi silmez.)
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS ai_headline TEXT;
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS ai_takeaway TEXT;
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS why_it_matters TEXT;
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS software_impact TEXT;
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS importance_score INT;
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS summary_status TEXT;
+ALTER TABLE search_results ADD COLUMN IF NOT EXISTS summary_model TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_search_results_session ON search_results(session_id);
 CREATE INDEX IF NOT EXISTS idx_search_results_category ON search_results(category);
 CREATE INDEX IF NOT EXISTS idx_search_sessions_user ON search_sessions(user_id);

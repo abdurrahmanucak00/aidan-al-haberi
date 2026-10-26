@@ -3,7 +3,7 @@
 **A desktop research agent that follows the people and topics you care about, analyses what it finds with Gemini, and publishes the result as a vintage newspaper in Turkish.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](package.json)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#getting-started)
 [![Electron](https://img.shields.io/badge/Electron-39-47848F.svg)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
@@ -49,6 +49,7 @@ Each story gets three structured sections: **Ne Anlatılıyor?** (what is it), *
 - **TR/EN toggle** — read the Turkish analysis or switch to the original English source text.
 - **Free-form search** — one-off searches that bypass the tracked list and are not added to the stand.
 - **Local-first storage** — editions, favourites and settings live on your machine. Cloud sync via Supabase is optional.
+- **Cloud backup and restore** — editions are mirrored to Supabase and can be pulled back from the History tab, with the richer local copy winning on conflicts.
 - **Encrypted API keys at rest** — Tavily and Gemini keys are stored with AES-256-GCM.
 
 ## How it works
@@ -190,10 +191,10 @@ Known limitations:
 - Cloud sync signs in anonymously, so the cloud copy is tied to this device's anonymous
   identity. Reinstalling or wiping app data loses that identity — treat cloud sync as an
   archive, not as cross-device sync.
-- Cloud **restore** is not wired into the UI yet: `fetchSessionsFromSupabase` and
-  `mergeSessionsLWW` exist but nothing calls them.
-- The current Supabase schema does not yet store the structured summary fields, so a
-  cloud-restored edition is less rich than the local one.
+- Cloud **restore** lives in the History tab ("Buluttan Geri Yükle"). It pulls the last 30
+  editions and merges them by id; the local copy wins when both sides hold the same edition.
+- Cloud rows now store the structured analysis fields (headline, takeaway, why it matters,
+  impact, importance score), so a restored edition reads like the original.
 
 ## Privacy & security
 
@@ -207,8 +208,7 @@ To report a vulnerability, please see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-- Cloud restore: pull cloud editions back into the History view
-- Schema migration for structured summary fields
+- Cross-device sync: link the anonymous session to an email account
 - Arbitrary user-defined tags on favourites
 - Additional language targets
 

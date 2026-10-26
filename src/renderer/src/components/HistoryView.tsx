@@ -1,21 +1,57 @@
 ﻿import React from 'react'
 import { motion } from 'framer-motion'
-import { History, Calendar, ArrowRight, Trash2, CheckCircle2, BookOpen } from 'lucide-react'
+import {
+  History,
+  Calendar,
+  ArrowRight,
+  Trash2,
+  CheckCircle2,
+  BookOpen,
+  CloudDownload,
+  Loader2
+} from 'lucide-react'
 import { SearchSession } from '../types'
+
+export interface RestoreResult {
+  ok: boolean
+  message: string
+}
 
 interface HistoryViewProps {
   sessions: SearchSession[]
   activeSessionId?: string
   onSelectSession: (session: SearchSession) => void
   onClearHistory: () => void
+  /** Defined only when cloud backup is configured; pulls editions from Supabase. */
+  onRestoreFromCloud?: () => Promise<RestoreResult>
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   sessions,
   activeSessionId,
   onSelectSession,
-  onClearHistory
+  onClearHistory,
+  onRestoreFromCloud
 }) => {
+  const [isRestoring, setIsRestoring] = React.useState(false)
+  const [restoreResult, setRestoreResult] = React.useState<RestoreResult | null>(null)
+
+  const handleRestore = async (): Promise<void> => {
+    if (!onRestoreFromCloud) return
+    setIsRestoring(true)
+    setRestoreResult(null)
+    try {
+      setRestoreResult(await onRestoreFromCloud())
+    } catch (err) {
+      setRestoreResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Buluttan geri yükleme başarısız oldu.'
+      })
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
   const formatDate = (dateStr: string): string => {
     const d = new Date(dateStr)
     return `${d.toLocaleDateString('tr-TR')} - ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
@@ -34,16 +70,46 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </h2>
         </div>
 
-        {sessions.length > 0 && (
-          <button
-            onClick={onClearHistory}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors shadow-2xs"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Tümünü Temizle</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onRestoreFromCloud && (
+            <button
+              onClick={handleRestore}
+              disabled={isRestoring}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-bold text-sky-700 hover:bg-sky-50 border border-sky-200 transition-colors shadow-2xs disabled:opacity-60"
+            >
+              {isRestoring ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CloudDownload className="w-3.5 h-3.5" />
+              )}
+              <span>{isRestoring ? 'Yükleniyor...' : 'Buluttan Geri Yükle'}</span>
+            </button>
+          )}
+
+          {sessions.length > 0 && (
+            <button
+              onClick={onClearHistory}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors shadow-2xs"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Tümünü Temizle</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {restoreResult && (
+        <div
+          role="status"
+          className={`rounded-2xl border p-3.5 text-xs font-medium ${
+            restoreResult.ok
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+          }`}
+        >
+          {restoreResult.message}
+        </div>
+      )}
 
       {sessions.length === 0 ? (
         <div className="rounded-3xl border border-sky-100 bg-white p-10 text-center space-y-3 shadow-xl shadow-sky-900/5">

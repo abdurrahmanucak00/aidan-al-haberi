@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { SearchSession } from '../types'
+import { SearchResult, SearchSession } from '../types'
 
 let cachedClient: SupabaseClient | null = null
 let lastConfig = ''
@@ -86,27 +86,31 @@ export async function syncSessionToSupabase(session: SearchSession, supabase: Su
     if (!auth.userId) {
       throw new Error(auth.error || 'Bulut kaydı için oturum açılması gerekiyor; gazete yerel olarak korunuyor.')
     }
-    const { data: sessionData, error: sessionErr } = await supabase
+
+    // Keep the local id as the cloud id so a later restore can match editions
+    // instead of duplicating them. Upsert makes re-syncing the same edition safe.
+    const { error: sessionErr } = await supabase
       .from('search_sessions')
-      .insert({
-        user_id: auth.userId,
-        searched_at: session.searched_at,
-        date_from: session.date_from,
-        date_to: session.date_to,
-        total_results: session.total_results
-      })
-      .select('id')
-      .single()
+      .upsert(
+        {
+          id: session.id,
+          user_id: auth.userId,
+          searched_at: session.searched_at,
+          date_from: session.date_from,
+          date_to: session.date_to,
+          total_results: session.total_results
+        },
+        { onConflict: 'id' }
+      )
 
-    if (sessionErr || !sessionData) {
-      throw new Error(sessionErr?.message || 'Bulut gazete kaydı oluşturulamadı.')
+    if (sessionErr) {
+      throw new Error(sessionErr.message || 'Bulut gazete kaydı oluşturulamadı.')
     }
-
-    const sessionId = sessionData.id
 
     if (session.results && session.results.length > 0) {
       const records = session.results.map((r) => ({
-        session_id: sessionId,
+        id: r.id,
+        session_id: session.id,
         category: r.category,
         query_label: r.query_label,
         query_type: r.query_type,
@@ -114,11 +118,20 @@ export async function syncSessionToSupabase(session: SearchSession, supabase: Su
         url: r.url,
         snippet: r.snippet,
         source: r.source,
-        published_date: r.published_date,
-        ai_summary: r.ai_summary || null
+        published_date: r.published_date ?? null,
+        ai_summary: r.ai_summary || null,
+        ai_headline: r.ai_headline || null,
+        ai_takeaway: r.ai_takeaway || null,
+        why_it_matters: r.why_it_matters || null,
+        software_impact: r.software_impact || null,
+        importance_score: r.importance_score ?? null,
+        summary_status: r.summary_status || null,
+        summary_model: r.summary_model || null
       }))
 
-      const { error: resultsError } = await supabase.from('search_results').insert(records)
+      const { error: resultsError } = await supabase
+        .from('search_results')
+        .upsert(records, { onConflict: 'id' })
       if (resultsError) throw new Error(`Haberler buluta yazılamadı: ${resultsError.message}`)
     }
   } catch (err) {
@@ -146,18 +159,22 @@ export async function fetchSessionsFromSupabase(
       .order('searched_at', { ascending: false })
       .limit(limit)
 
-    if (sessErr || !sessionsData) {
-      console.warn('Supabase fetch sessions error:', sessErr)
-      return []
+    if (sessErr) {
+      throw new Error(`Bulut kayıtları okunamadı: ${sessErr.message}`)
     }
+    if (!sessionsData || sessionsData.length === 0) return []
 
     const sessions: SearchSession[] = []
 
     for (const s of sessionsData) {
-      const { data: resultsData } = await supabase
+      const { data: resultsData, error: resultsErr } = await supabase
         .from('search_results')
         .select('*')
         .eq('session_id', s.id)
+
+      if (resultsErr) {
+        throw new Error(`Bulut haberleri okunamadı: ${resultsErr.message}`)
+      }
 
       sessions.push({
         id: s.id,
@@ -169,16 +186,24 @@ export async function fetchSessionsFromSupabase(
         results: (resultsData || []).map((r) => ({
           id: r.id,
           session_id: r.session_id,
-          category: r.category,
-          query_label: r.query_label,
-          query_type: r.query_type,
-          title: r.title,
-          url: r.url,
-          snippet: r.snippet,
-          source: r.source,
-          published_date: r.published_date,
-          ai_summary: r.ai_summary,
-          what_is_it: r.ai_summary,
+          category: (r.category || 'news') as SearchResult['category'],
+          query_label: r.query_label || '',
+          query_type: (r.query_type === 'person' ? 'person' : 'interest') as SearchResult['query_type'],
+          title: r.title || '',
+          url: r.url || '',
+          snippet: r.snippet || '',
+          source: r.source || '',
+          published_date: r.published_date || undefined,
+          ai_summary: r.ai_summary || undefined,
+          // Older rows only stored `ai_summary`; treat it as the "what is it" body.
+          what_is_it: r.ai_summary || undefined,
+          ai_headline: r.ai_headline || undefined,
+          ai_takeaway: r.ai_takeaway || undefined,
+          why_it_matters: r.why_it_matters || undefined,
+          software_impact: r.software_impact || undefined,
+          importance_score: r.importance_score ?? undefined,
+          summary_status: (r.summary_status === 'pending' ? 'pending' : 'complete') as SearchResult['summary_status'],
+          summary_model: r.summary_model || undefined,
           created_at: r.created_at || s.searched_at
         }))
       })
@@ -186,8 +211,7 @@ export async function fetchSessionsFromSupabase(
 
     return sessions
   } catch (err) {
-    console.error('Supabase fetch exception:', err)
-    return []
+    throw err instanceof Error ? err : new Error('Bulut kayıtları okunamadı.')
   }
 }
 

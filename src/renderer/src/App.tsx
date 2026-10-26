@@ -13,6 +13,8 @@ import {
   toggleFavorite
 } from './lib/storage'
 import { runIncrementalResearch, runAdHocSearch, retryPendingSummaries } from './lib/researchEngine'
+import { fetchSessionsFromSupabase, getSupabaseClient, mergeSessionsLWW } from './lib/supabase'
+import type { RestoreResult } from './components/HistoryView'
 import { Navbar } from './components/Navbar'
 import { MobileBottomNav } from './components/MobileBottomNav'
 import { NewspaperStand } from './components/NewspaperStand'
@@ -199,6 +201,48 @@ export function App(): React.JSX.Element {
     await saveUserSettings(newSettings)
   }
 
+  // Pull cloud editions and merge them into the local history (local wins on ties).
+  const handleRestoreFromCloud = async (): Promise<RestoreResult> => {
+    const client = getSupabaseClient(settings?.supabase_url, settings?.supabase_anon_key)
+    if (!client) {
+      return {
+        ok: false,
+        message: 'Bulut yapılandırılmamış. Ayarlar → Bulut Yedekleme bölümünden Supabase URL ve anon key gir.'
+      }
+    }
+
+    const cloudSessions = await fetchSessionsFromSupabase(client, 30)
+    if (cloudSessions.length === 0) {
+      return {
+        ok: false,
+        message: 'Bulutta kayıtlı gazete bulunamadı. Bu cihazın anonim oturumuna ait yedek yok.'
+      }
+    }
+
+    const localSessions = sessionsRef.current
+    const merged = mergeSessionsLWW(localSessions, cloudSessions).slice(0, 30)
+    const added = merged.filter((s) => !localSessions.some((l) => l.id === s.id)).length
+
+    const saved = saveSearchSessions(merged)
+    sessionsRef.current = merged
+    setSessions(merged)
+
+    if (!saved) {
+      return {
+        ok: false,
+        message: `${cloudSessions.length} gazete buluttan okundu ama yerel kayıt başarısız (depolama dolu olabilir).`
+      }
+    }
+
+    return {
+      ok: true,
+      message:
+        added > 0
+          ? `Buluttan ${cloudSessions.length} gazete okundu, ${added} yeni gazete eklendi. Toplam ${merged.length}.`
+          : `Buluttan ${cloudSessions.length} gazete okundu; hepsi zaten yerelde vardı.`
+    }
+  }
+
   // One-off free-form search (bypasses the tracked list, not added to the stand)
   const executeFreeSearch = async (query: string): Promise<void> => {
     if (!settings || operationRef.current) return
@@ -376,6 +420,7 @@ export function App(): React.JSX.Element {
                   saveSearchSessions([])
                   setOpenedSession(null)
                 }}
+                onRestoreFromCloud={handleRestoreFromCloud}
               />
             </motion.div>
           )}
